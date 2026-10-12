@@ -44,12 +44,13 @@ No React, Vue, Tailwind, ORMs, animation or CSS frameworks.
 ## Layout
 
 ```
-run.py                 entry point (dashboard + JSON API, no live capture)
+run.py                 entry point (dashboard + JSON API; --live-demo / --capture opt in)
 config.json            all thresholds and the known-device inventory
 nids/config.py         load/validate config, apply defaults
 nids/models.py         PacketRecord / Alert / Device dataclasses
 nids/parser.py         Scapy packet -> PacketRecord
 nids/synthetic.py      fake PacketRecords for tests/demo
+nids/livefeed.py       background synthetic feed for --live-demo
 nids/engine.py         run detectors over records, collect alerts
 nids/dedup.py          suppress duplicate ongoing alerts
 nids/capture.py        Scapy sniff() wrapper (only place using live capture)
