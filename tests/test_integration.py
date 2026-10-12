@@ -128,9 +128,9 @@ def test_run_binds_to_localhost(monkeypatch):
             calls["port"] = port
             calls["debug"] = debug
 
-    monkeypatch.setattr(run, "build_app", lambda: FakeApp())
+    monkeypatch.setattr(run, "build_app", lambda **kwargs: FakeApp())
 
-    assert run.main() == 0
+    assert run.main([]) == 0
     assert calls["host"] == "127.0.0.1"
     assert calls["host"] == run.HOST
     assert calls["port"] == run.PORT
@@ -140,9 +140,9 @@ def test_run_reports_config_error(monkeypatch, capsys):
     def boom():
         raise ConfigError("bad config")
 
-    monkeypatch.setattr(run, "build_app", boom)
+    monkeypatch.setattr(run, "load_config", boom)
 
-    assert run.main() == 1
+    assert run.main([]) == 1
     assert "Configuration error" in capsys.readouterr().out
 
 
