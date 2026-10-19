@@ -17,6 +17,7 @@ def tcp_packets(
     count=1,
     start_time=0.0,
     interval=1.0,
+    length=74,
 ):
     """Normal TCP traffic between one client port and one server port."""
     return _records(
@@ -28,6 +29,7 @@ def tcp_packets(
         src_port=src_port,
         dst_port=dst_port,
         protocol="TCP",
+        length=length,
     )
 
 
@@ -39,6 +41,7 @@ def udp_packets(
     count=1,
     start_time=0.0,
     interval=1.0,
+    length=90,
 ):
     """Normal UDP traffic between one source and one destination port."""
     return _records(
@@ -50,6 +53,27 @@ def udp_packets(
         src_port=src_port,
         dst_port=dst_port,
         protocol="UDP",
+        length=length,
+    )
+
+
+def icmp_packets(
+    src_ip="10.0.0.1",
+    dst_ip="10.0.0.2",
+    count=1,
+    start_time=0.0,
+    interval=1.0,
+    length=98,
+):
+    """Normal ICMP traffic (for example ping) between two hosts."""
+    return _records(
+        count,
+        start_time,
+        interval,
+        src_ip=src_ip,
+        dst_ip=dst_ip,
+        protocol="ICMP",
+        length=length,
     )
 
 
@@ -61,6 +85,7 @@ def port_scan_packets(
     src_port=40000,
     start_time=0.0,
     interval=0.01,
+    length=58,
 ):
     """One source contacting many different destination ports in a row."""
     records = []
@@ -73,6 +98,7 @@ def port_scan_packets(
                 src_port=src_port,
                 dst_port=start_port + offset,
                 protocol="TCP",
+                length=length,
             )
         )
     return records
@@ -86,6 +112,7 @@ def packet_burst(
     dst_port=80,
     start_time=0.0,
     interval=0.01,
+    length=1400,
 ):
     """A rapid burst of packets from a single source."""
     return tcp_packets(
@@ -96,6 +123,7 @@ def packet_burst(
         count=count,
         start_time=start_time,
         interval=interval,
+        length=length,
     )
 
 
@@ -106,6 +134,7 @@ def arp_mapping_change(
     target_mac="ff:ff:ff:ff:ff:ff",
     start_time=0.0,
     interval=1.0,
+    length=42,
 ):
     """ARP replies where one IP claims different MAC addresses over time."""
     records = []
@@ -121,6 +150,7 @@ def arp_mapping_change(
                 arp_target_mac=target_mac,
                 src_ip=sender_ip,
                 dst_ip=target_ip,
+                length=length,
             )
         )
     return records
@@ -134,6 +164,7 @@ def unknown_device_traffic(
     count=5,
     start_time=0.0,
     interval=1.0,
+    length=74,
 ):
     """Traffic from a source that is not in the known-device inventory."""
     return tcp_packets(
@@ -144,6 +175,7 @@ def unknown_device_traffic(
         count=count,
         start_time=start_time,
         interval=interval,
+        length=length,
     )
 
 
@@ -155,6 +187,7 @@ def repeated_connections(
     start_port=40000,
     start_time=0.0,
     interval=0.5,
+    length=66,
 ):
     """Repeated TCP connection attempts to the same destination service.
 
@@ -170,8 +203,35 @@ def repeated_connections(
                 src_port=start_port + index,
                 dst_port=dst_port,
                 protocol="TCP",
+                length=length,
             )
         )
+    return records
+
+
+def background_traffic(start_time=0.0):
+    """A mix of ordinary TCP, UDP, and ICMP traffic for a realistic baseline.
+
+    Used by the live demo so the traffic portal shows continuous, non-malicious
+    activity alongside the occasional attack scenario.
+    """
+    records = []
+    records += tcp_packets(
+        src_ip="10.0.0.11", dst_ip="10.0.0.2", dst_port=443, count=18,
+        start_time=start_time, interval=0.05, length=620,
+    )
+    records += tcp_packets(
+        src_ip="10.0.0.12", dst_ip="10.0.0.2", dst_port=80, count=10,
+        start_time=start_time, interval=0.07, length=340,
+    )
+    records += udp_packets(
+        src_ip="10.0.0.11", dst_ip="10.0.0.1", dst_port=53, count=6,
+        start_time=start_time, interval=0.1, length=96,
+    )
+    records += icmp_packets(
+        src_ip="10.0.0.13", dst_ip="10.0.0.1", count=4,
+        start_time=start_time, interval=0.2, length=98,
+    )
     return records
 
 

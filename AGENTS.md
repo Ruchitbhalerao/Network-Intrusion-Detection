@@ -7,7 +7,8 @@ Guidance for AI/agent sessions working in this repository. Keep it up to date.
 Network Intrusion Detection and Threat Monitoring System — a beginner-friendly
 Computer Networks mini-project. It monitors network traffic, detects predefined
 suspicious patterns, stores security events in SQLite, and shows them on a
-minimal web dashboard.
+minimal web dashboard. It also measures live traffic (packets, bytes, and
+protocol usage) and presents it on a real-time traffic portal at ``/live``.
 
 ## Tech stack (do not add more without approval)
 
@@ -44,21 +45,34 @@ No React, Vue, Tailwind, ORMs, animation or CSS frameworks.
 ## Layout
 
 ```
-run.py                 entry point (dashboard + JSON API, no live capture)
+run.py                 entry point (dashboard + JSON API; --live-demo / --capture opt in)
 config.json            all thresholds and the known-device inventory
 nids/config.py         load/validate config, apply defaults
 nids/models.py         PacketRecord / Alert / Device dataclasses
-nids/parser.py         Scapy packet -> PacketRecord
+nids/parser.py         Scapy packet -> PacketRecord (fills length in bytes)
 nids/synthetic.py      fake PacketRecords for tests/demo
-nids/engine.py         run detectors over records, collect alerts
+nids/livefeed.py       background synthetic feed for --live-demo
+nids/engine.py         run detectors over records, collect alerts, meter traffic
+nids/metrics.py        TrafficMeter: aggregate records into per-second buckets
 nids/dedup.py          suppress duplicate ongoing alerts
 nids/capture.py        Scapy sniff() wrapper (only place using live capture)
-nids/db.py             SQLite schema + read/write helpers
+nids/db.py             SQLite schema + read/write helpers (alerts, devices, traffic)
 nids/api.py            read-only Flask JSON API (create_app)
 nids/detectors/        one file per detection rule
-nids/web/              dashboard blueprint, templates, static
+nids/web/              dashboard + live portal blueprint, templates, static
 tests/                 pytest tests
 ```
+
+## Traffic portal
+
+Every record that reaches `engine.process_record()` is also counted by a
+`TrafficMeter` (`nids/metrics.py`), which groups packets into one-second
+buckets per protocol and per source IP and flushes completed seconds to the
+`traffic` and `talkers` tables. The `/api/traffic?window=<seconds>` endpoint
+reads those tables (series, protocol breakdown, top talkers, summary) and the
+`/live` page polls it every 2s to draw bandwidth, protocol mix, and top
+talkers with vanilla JS + inline SVG (no chart library). Retention and the
+default/max window live under `traffic_monitor` in `config.json`.
 
 ## Commands
 

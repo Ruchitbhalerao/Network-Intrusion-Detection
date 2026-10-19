@@ -29,5 +29,12 @@
   "dedup": {
     "window_seconds": 60
   },
+  "traffic_monitor": {
+    "enabled": true,
+    "retention_seconds": 900,
+    "default_window_seconds": 60,
+    "max_window_seconds": 900,
+    "top_talkers": 5
+  },
   "known_devices": []
 }

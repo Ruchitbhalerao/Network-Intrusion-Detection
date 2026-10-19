@@ -20,6 +20,7 @@ class PacketRecord:
     src_port: Optional[int] = None
     dst_port: Optional[int] = None
     protocol: Optional[str] = None
+    length: Optional[int] = None
     src_mac: Optional[str] = None
     dst_mac: Optional[str] = None
     arp_operation: Optional[int] = None

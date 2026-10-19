@@ -25,6 +25,11 @@ def dashboard():
     return render_template("index.html")
 
 
+@web.get("/live")
+def live():
+    return render_template("live.html")
+
+
 def register_web(app):
     """Attach the dashboard routes to a Flask application."""
     app.register_blueprint(web)

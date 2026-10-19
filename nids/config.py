@@ -43,6 +43,13 @@ DEFAULTS = {
     "dedup": {
         "window_seconds": 60,
     },
+    "traffic_monitor": {
+        "enabled": True,
+        "retention_seconds": 900,
+        "default_window_seconds": 60,
+        "max_window_seconds": 900,
+        "top_talkers": 5,
+    },
     "known_devices": [],
 }
 
@@ -116,6 +123,8 @@ def _validate(config):
     _positive_int(config["repeated_connections"]["attempts_threshold"], "repeated_connections.attempts_threshold")
     _positive_int(config["dedup"]["window_seconds"], "dedup.window_seconds")
 
+    _validate_traffic_monitor(config["traffic_monitor"])
+
     _validate_known_devices(config["known_devices"])
     return config
 
@@ -154,6 +163,20 @@ def _validate_capture(capture):
         raise ConfigError("'capture.interface' must be null or a non-empty string")
     _non_negative_int(capture["packet_limit"], "capture.packet_limit")
     _non_negative_number(capture["timeout_seconds"], "capture.timeout_seconds")
+
+
+def _validate_traffic_monitor(monitor):
+    if not isinstance(monitor["enabled"], bool):
+        raise ConfigError("'traffic_monitor.enabled' must be true or false")
+    _positive_int(monitor["retention_seconds"], "traffic_monitor.retention_seconds")
+    _positive_int(monitor["default_window_seconds"], "traffic_monitor.default_window_seconds")
+    _positive_int(monitor["max_window_seconds"], "traffic_monitor.max_window_seconds")
+    _positive_int(monitor["top_talkers"], "traffic_monitor.top_talkers")
+    if monitor["default_window_seconds"] > monitor["max_window_seconds"]:
+        raise ConfigError(
+            "'traffic_monitor.default_window_seconds' must not exceed "
+            "'traffic_monitor.max_window_seconds'"
+        )
 
 
 def _validate_known_devices(devices):

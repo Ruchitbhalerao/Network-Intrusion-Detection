@@ -54,3 +54,37 @@ def test_dashboard_ships_with_loading_and_empty_states(client):
     assert "No alerts recorded yet" in js
     assert "No devices tracked yet" in js
     assert "Could not load data" in js
+
+
+def test_live_portal_page_is_served(client):
+    response = client.get("/live")
+
+    assert response.status_code == 200
+    assert "text/html" in response.content_type
+    body = response.get_data(as_text=True)
+    assert "Live Traffic Portal" in body
+    assert 'id="bandwidth-chart"' in body
+    assert 'id="protocol-bars"' in body
+    assert 'id="talkers-body"' in body
+
+
+def test_live_portal_script_is_served_and_calls_traffic_api(client):
+    js = client.get("/static/live.js")
+
+    assert js.status_code == 200
+    assert "javascript" in js.content_type
+    body = js.get_data(as_text=True)
+    assert "/api/traffic" in body
+    assert "/api/health" in body
+
+
+def test_dashboard_links_to_live_portal(client):
+    body = client.get("/").get_data(as_text=True)
+    assert 'href="/live"' in body
+
+
+def test_live_portal_has_no_hardcoded_sample_data(client):
+    body = client.get("/live").get_data(as_text=True)
+
+    for marker in ("10.0.0", "192.168", "aa:bb:cc", "example.com"):
+        assert marker not in body

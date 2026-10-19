@@ -33,6 +33,7 @@ def parse_packet(packet):
         return None
 
     record = PacketRecord(timestamp=timestamp)
+    record.length = _packet_length(packet)
     _copy_ethernet(packet, record)
 
     if packet.haslayer(ARP):
@@ -44,6 +45,13 @@ def parse_packet(packet):
         return record
 
     return None
+
+
+def _packet_length(packet):
+    try:
+        return int(len(packet))
+    except (TypeError, ValueError):
+        return None
 
 
 def _packet_timestamp(packet):

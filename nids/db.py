@@ -10,6 +10,7 @@ Timestamps are stored as floating-point Unix epoch seconds, matching
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from time import time
 
 from .models import Alert, Device
 
@@ -41,6 +42,26 @@ CREATE TABLE IF NOT EXISTS devices (
     first_seen REAL,
     last_seen REAL
 );
+
+CREATE TABLE IF NOT EXISTS traffic (
+    bucket INTEGER NOT NULL,
+    protocol TEXT NOT NULL,
+    packets INTEGER NOT NULL DEFAULT 0,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (bucket, protocol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_traffic_bucket ON traffic (bucket);
+
+CREATE TABLE IF NOT EXISTS talkers (
+    bucket INTEGER NOT NULL,
+    src_ip TEXT NOT NULL,
+    packets INTEGER NOT NULL DEFAULT 0,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (bucket, src_ip)
+);
+
+CREATE INDEX IF NOT EXISTS idx_talkers_bucket ON talkers (bucket);
 """
 
 _UPSERT_DEVICE = """
@@ -59,6 +80,22 @@ _ALERT_COLUMNS = (
     "alert_type, severity, message, timestamp, "
     "src_ip, dst_ip, src_port, dst_port, protocol"
 )
+
+_UPSERT_TRAFFIC = """
+INSERT INTO traffic (bucket, protocol, packets, bytes)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (bucket, protocol) DO UPDATE SET
+    packets = traffic.packets + excluded.packets,
+    bytes = traffic.bytes + excluded.bytes
+"""
+
+_UPSERT_TALKER = """
+INSERT INTO talkers (bucket, src_ip, packets, bytes)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (bucket, src_ip) DO UPDATE SET
+    packets = talkers.packets + excluded.packets,
+    bytes = talkers.bytes + excluded.bytes
+"""
 
 
 def init_db(db_path=DEFAULT_DB_PATH):
@@ -147,6 +184,130 @@ def get_stats(db_path=DEFAULT_DB_PATH):
         "alerts_by_severity": by_severity,
         "tracked_devices": tracked_devices,
     }
+
+
+def record_traffic(protocol_rows, talker_rows, db_path=DEFAULT_DB_PATH):
+    """Accumulate per-second traffic totals.
+
+    ``protocol_rows`` are ``(bucket, protocol, packets, bytes)`` tuples and
+    ``talker_rows`` are ``(bucket, src_ip, packets, bytes)`` tuples. Existing
+    buckets are added to rather than replaced, so the same second may be
+    flushed more than once.
+    """
+    protocol_rows = list(protocol_rows)
+    talker_rows = list(talker_rows)
+    if not protocol_rows and not talker_rows:
+        return
+    with _connection(db_path) as connection:
+        if protocol_rows:
+            connection.executemany(_UPSERT_TRAFFIC, protocol_rows)
+        if talker_rows:
+            connection.executemany(_UPSERT_TALKER, talker_rows)
+
+
+def prune_traffic(cutoff, db_path=DEFAULT_DB_PATH):
+    """Delete traffic and talker buckets at or before ``cutoff`` (epoch second)."""
+    with _connection(db_path) as connection:
+        connection.execute("DELETE FROM traffic WHERE bucket <= ?", (int(cutoff),))
+        connection.execute("DELETE FROM talkers WHERE bucket <= ?", (int(cutoff),))
+
+
+def get_traffic_series(window_seconds, now=None, db_path=DEFAULT_DB_PATH):
+    """Return per-second totals over the last ``window_seconds``.
+
+    Each item is ``{"bucket", "packets", "bytes"}`` ordered oldest to newest.
+    Only seconds that actually carried traffic appear.
+    """
+    start = _window_start(window_seconds, now)
+    with _connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT bucket, SUM(packets) AS packets, SUM(bytes) AS bytes "
+            "FROM traffic WHERE bucket >= ? GROUP BY bucket ORDER BY bucket",
+            (start,),
+        ).fetchall()
+    return [
+        {"bucket": row["bucket"], "packets": row["packets"], "bytes": row["bytes"]}
+        for row in rows
+    ]
+
+
+def get_protocol_breakdown(window_seconds, now=None, db_path=DEFAULT_DB_PATH):
+    """Return totals per protocol over the window, busiest (by bytes) first."""
+    start = _window_start(window_seconds, now)
+    with _connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT protocol, SUM(packets) AS packets, SUM(bytes) AS bytes "
+            "FROM traffic WHERE bucket >= ? GROUP BY protocol "
+            "ORDER BY bytes DESC, packets DESC, protocol",
+            (start,),
+        ).fetchall()
+    return [
+        {"protocol": row["protocol"], "packets": row["packets"], "bytes": row["bytes"]}
+        for row in rows
+    ]
+
+
+def get_top_talkers(window_seconds, limit=5, now=None, db_path=DEFAULT_DB_PATH):
+    """Return the busiest source addresses over the window, by bytes then packets."""
+    start = _window_start(window_seconds, now)
+    with _connection(db_path) as connection:
+        rows = connection.execute(
+            "SELECT src_ip, SUM(packets) AS packets, SUM(bytes) AS bytes "
+            "FROM talkers WHERE bucket >= ? GROUP BY src_ip "
+            "ORDER BY bytes DESC, packets DESC, src_ip LIMIT ?",
+            (start, limit),
+        ).fetchall()
+    return [
+        {"src_ip": row["src_ip"], "packets": row["packets"], "bytes": row["bytes"]}
+        for row in rows
+    ]
+
+
+def get_traffic_summary(window_seconds, now=None, db_path=DEFAULT_DB_PATH):
+    """Return aggregate traffic figures for the window.
+
+    Keys: ``window_seconds``, ``total_packets``, ``total_bytes``,
+    ``active_seconds``, ``protocols``, ``peak_packets_per_second``,
+    ``peak_bytes_per_second``, ``avg_packets_per_second`` and
+    ``avg_bytes_per_second`` (averaged over the whole window, idle seconds
+    included).
+    """
+    start = _window_start(window_seconds, now)
+    with _connection(db_path) as connection:
+        totals = connection.execute(
+            "SELECT COALESCE(SUM(packets), 0) AS packets, "
+            "COALESCE(SUM(bytes), 0) AS bytes, "
+            "COUNT(DISTINCT bucket) AS seconds, "
+            "COUNT(DISTINCT protocol) AS protocols "
+            "FROM traffic WHERE bucket >= ?",
+            (start,),
+        ).fetchone()
+        peaks = connection.execute(
+            "SELECT COALESCE(MAX(packets), 0) AS peak_packets, "
+            "COALESCE(MAX(bytes), 0) AS peak_bytes FROM ("
+            "SELECT SUM(packets) AS packets, SUM(bytes) AS bytes "
+            "FROM traffic WHERE bucket >= ? GROUP BY bucket)",
+            (start,),
+        ).fetchone()
+
+    total_packets = totals["packets"]
+    total_bytes = totals["bytes"]
+    return {
+        "window_seconds": window_seconds,
+        "total_packets": total_packets,
+        "total_bytes": total_bytes,
+        "active_seconds": totals["seconds"],
+        "protocols": totals["protocols"],
+        "peak_packets_per_second": peaks["peak_packets"],
+        "peak_bytes_per_second": peaks["peak_bytes"],
+        "avg_packets_per_second": total_packets / window_seconds,
+        "avg_bytes_per_second": total_bytes / window_seconds,
+    }
+
+
+def _window_start(window_seconds, now):
+    reference = int(now if now is not None else time())
+    return reference - int(window_seconds)
 
 
 @contextmanager
